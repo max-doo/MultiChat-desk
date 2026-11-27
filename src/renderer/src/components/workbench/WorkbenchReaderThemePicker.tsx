@@ -18,14 +18,20 @@ export const READER_THEME_PRESETS: ReaderThemePreset[] = [
 interface WorkbenchReaderThemePickerProps {
   value: ReaderBackgroundTheme
   onChange: (theme: ReaderBackgroundTheme) => void
+  /** 限定可选子集（如 PPT 只开 浅色/暗色 两档）；缺省全量四色 */
+  options?: ReaderBackgroundTheme[]
 }
 
 export default function WorkbenchReaderThemePicker({
   value,
-  onChange
+  onChange,
+  options
 }: WorkbenchReaderThemePickerProps): JSX.Element {
   const isDark = value === 'dark'
-  const current = READER_THEME_PRESETS.find((item) => item.id === value) ?? READER_THEME_PRESETS[0]
+  const presets = options
+    ? READER_THEME_PRESETS.filter((item) => options.includes(item.id))
+    : READER_THEME_PRESETS
+  const current = presets.find((item) => item.id === value) ?? presets[0] ?? READER_THEME_PRESETS[0]
 
   return (
     <WorkbenchDropDown
@@ -51,7 +57,7 @@ export default function WorkbenchReaderThemePicker({
       }
     >
       <div className="min-w-[144px]">
-        {READER_THEME_PRESETS.map((preset) => {
+        {presets.map((preset) => {
           const active = preset.id === value
           return (
             <WorkbenchDropDownItem

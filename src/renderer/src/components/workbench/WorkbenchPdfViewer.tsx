@@ -349,6 +349,12 @@ interface PdfMenuState {
   selectedText: string
 }
 
+type PdfRangeReader = (start: number, end: number) => Promise<{
+  success: boolean
+  data?: { bytes: Uint8Array; size: number; mtime: number }
+  error?: string
+}>
+
 interface WorkbenchPdfViewerProps {
   workspacePath: string
   relativePath: string
@@ -358,6 +364,16 @@ interface WorkbenchPdfViewerProps {
   backgroundTheme: ReaderBackgroundTheme
   onZoomStep: (direction: -1 | 1) => void
   onLoadState: (state: 'loading' | 'ready' | 'error', message?: string) => void
+  /**
+   * 自定义分段数据源。缺省走工作区内 PDF 的 IPC 读取；
+   * 工作区外的产物（如 PPTX 转换缓存）通过该回调供数，不改协议边界。
+   */
+  readRange?: PdfRangeReader
+  /**
+   * 暗色主题下是否对页面内容套反色滤镜。文档类（PDF/Word 场景）默认 true；
+   * 幻灯片等彩色版面必须 false——暗色主题只变画布衬底，内容保持原始色彩。
+   */
+  invertContent?: boolean
 }
 
 /** PDF.js 预览：canvas 绘制页面，透明文本层提供可选中的真实文字。 */
@@ -369,7 +385,9 @@ export default function WorkbenchPdfViewer({
   zoom,
   backgroundTheme,
   onZoomStep,
-  onLoadState
+  onLoadState,
+  readRange,
+  invertContent = true
 }: WorkbenchPdfViewerProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const pagesGridRef = useRef<HTMLDivElement | null>(null)
@@ -572,12 +590,9 @@ export default function WorkbenchPdfViewer({
     const load = async (): Promise<void> => {
       // 首段由受信 IPC 读取；PDF.js 后续按 Range 拉取，完整文件不经过 renderer 主堆。
       const initialEnd = Math.min(fileSize - 1, PDF_INITIAL_CHUNK_BYTES - 1)
-      const initial = await window.api.workbench.readPdfRange(
-        workspacePath,
-        relativePath,
-        0,
-        initialEnd
-      )
+      const fetchRange: PdfRangeReader = readRange ?? ((start, end) =>
+        window.api.workbench.readPdfRange(workspacePath, relativePath, start, end))
+      const initial = await fetchRange(0, initialEnd)
       if (cancelled) return
       if (!initial.success || !initial.data) {
         throw new Error(initial.error || '读取 PDF 首段失败')
@@ -590,9 +605,8 @@ export default function WorkbenchPdfViewer({
           transport.onDataRange(begin, new Uint8Array(0))
           return
         }
-        void window.api.workbench
-          // PDF.js 的 range 为 [begin, end)，IPC 读取范围按闭区间表达。
-          .readPdfRange(workspacePath, relativePath, begin, end - 1)
+        // PDF.js 的 range 为 [begin, end)，读取接口按闭区间表达。
+        void fetchRange(begin, end - 1)
           .then((result) => {
             if (cancelled || failed) return
             if (!result.success || !result.data) {
@@ -659,7 +673,7 @@ export default function WorkbenchPdfViewer({
       if (document) void document.destroy()
       else if (loadingTask) void loadingTask.destroy()
     }
-  }, [workspacePath, relativePath, fileSize, reloadKey, onLoadState])
+  }, [workspacePath, relativePath, fileSize, reloadKey, onLoadState, readRange])
 
   const handleSelect = useCallback((event: MouseEvent, pageElement: HTMLDivElement): void => {
     const selection = window.getSelection()
@@ -728,6 +742,7 @@ export default function WorkbenchPdfViewer({
       ref={containerRef}
       className="w-full h-full overflow-auto bg-gray-200 dark:bg-[#141414] py-6 px-6 wb-pdf-viewport transition-colors duration-150"
       data-pdf-theme={backgroundTheme}
+      data-pdf-invert-content={invertContent ? 'on' : 'off'}
     >
       {pdf && (
         <div
@@ -755,7 +770,7 @@ export default function WorkbenchPdfViewer({
                 renderWidth={renderWidth}
                 defaultAspectRatio={defaultAspectRatio}
                 initialAspectRatio={aspectRatiosRef.current.get(pageNumber)}
-                isDark={backgroundTheme === 'dark'}
+                isDark={invertContent && backgroundTheme === 'dark'}
                 isNear={nearPages.has(pageNumber)}
                 registerPageElement={registerPageElement}
                 onPageLoaded={onPageLoaded}

@@ -669,6 +669,10 @@ def main():
         separator_cells = [cell.strip() for cell in csv_lines[1].strip().strip('|').split('|')]
         assert all(cell == '---' for cell in separator_cells), \
             f"第二行必须是 Markdown 分隔行: {csv_lines[1][:80]}"
+        # 表头必须是表格自身的表头行（数据行 0），而不是选区首行（Alpha 是数据）
+        assert '产品' in csv_lines[0] and '季度' in csv_lines[0], \
+            f"Markdown 表头必须是文件首行（产品/季度/营收/备注），实际: {csv_lines[0][:80]}"
+        assert 'Alpha' not in csv_lines[0], f"选区首行（Alpha 数据行）不得出现在表头: {csv_lines[0][:80]}"
         assert '含 \\| 竖线' in csv_md, f"单元格内竖线必须转义为 \\|: {csv_md[:300]}"
         print("PASS T14: CSV 选区正确转为矩形化 Markdown（竖线转义）并到达注入链路")
 
@@ -740,6 +744,16 @@ def main():
         highlighted = page.locator('td.bg-\\[\\#e9e9e9\\]').count()
         # 8 格矩形中活动格(1:0)是白底绿框，其余 7 格高亮
         assert highlighted == 7, f"2×4 矩形拖选应高亮 7 格（活动格除外），实际 {highlighted}"
+        # 计算样式断言：类名存在 ≠ 样式生效（bg-white 与 bg-[#e9e9e9] 的级联冲突曾吞掉遮罩），
+        # 必须校验 getComputedStyle 的真实结果。
+        inner_bg = page.evaluate(
+            "getComputedStyle(document.querySelector('td[data-rc=\"1:1\"]')).backgroundColor"
+        )
+        assert inner_bg == 'rgb(233, 233, 233)', f"选区内格计算底色必须是 rgb(233,233,233)，实际 {inner_bg}"
+        anchor_bg = page.evaluate(
+            "getComputedStyle(document.querySelector('td[data-rc=\"1:0\"]')).backgroundColor"
+        )
+        assert anchor_bg == 'rgb(255, 255, 255)', f"活动格计算底色必须是白色，实际 {anchor_bg}"
         anchor_shadow = page.evaluate(
             "document.querySelector('td[data-rc=\"1:0\"]')?.style.boxShadow ?? ''"
         )
@@ -812,6 +826,7 @@ def main():
         assert prompt_count() == before + 1, "右键发送 AI 必须派发 insert-prompt"
         single_md = last_prompt()
         assert 'Q3' in single_md, f"右键选区外改选应以该格为选区: {single_md[:120]}"
+        assert '季度' in single_md, f"单格发送的 Markdown 表头必须是表格表头行: {single_md[:120]}"
         clear_clicks()
 
         # --- T17f: small.xlsx 合并单元格扩张（点击被覆盖格 → 整个合并区入选）---

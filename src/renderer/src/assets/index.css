@@ -1558,6 +1558,10 @@ webview[tabindex="-1"] {
 .wb-pdf-viewport[data-pdf-theme='dark'] [data-pdf-page] canvas[data-pdf-base-canvas='true'] {
   filter: invert(0.882) hue-rotate(180deg);
 }
+/* 内容保真模式（PPT 等彩色文档）：任何主题下页面内容不套滤镜，只有画布衬底变色 */
+.wb-pdf-viewport[data-pdf-invert-content='off'] [data-pdf-page] canvas[data-pdf-base-canvas='true'] {
+  filter: none;
+}
 
 /* Word (.docx) 预览画布与纸张色调适配 */
 .wb-docx-viewport[data-docx-theme='sepia'] {

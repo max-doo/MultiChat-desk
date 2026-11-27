@@ -9,8 +9,11 @@ import { useWorkbenchSelectionAi } from './useWorkbenchSelectionAi'
 import {
   PreviewFallbackState,
   PreviewHeader,
-  PreviewMetaPill
+  PreviewMetaPill,
+  PreviewZoomControls
 } from './WorkbenchPreviewChrome'
+import WorkbenchPdfViewer from './WorkbenchPdfViewer'
+import WorkbenchReaderThemePicker from './WorkbenchReaderThemePicker'
 import type {
   PptxParseResult,
   PptxShape,
@@ -35,6 +38,11 @@ const SLIDE_FIT_PADDING = 16
 
 type LoadState = 'loading' | 'ready' | 'error'
 
+interface HiFiState {
+  pdfPath: string
+  size: number
+}
+
 interface SlideMetrics {
   widthPx: number
   heightPx: number
@@ -49,6 +57,8 @@ export default function WorkbenchPptxPreview(): JSX.Element {
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const pptxBackgroundTheme = useWorkbenchStore((s) => s.pptxBackgroundTheme)
+  const setPptxBackgroundTheme = useWorkbenchStore((s) => s.setPptxBackgroundTheme)
 
   const contentRef = useRef<HTMLDivElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
@@ -60,6 +70,20 @@ export default function WorkbenchPptxPreview(): JSX.Element {
   const [mediaUrls, setMediaUrls] = useState<string[]>([])
   const [reloadKey, setReloadKey] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(0)
+  const [hiFi, setHiFi] = useState<HiFiState | null>(null)
+  const [zoom, setZoom] = useState(1)
+
+  const ZOOM_MIN = 0.3
+  const ZOOM_MAX = 3
+  const ZOOM_STEP = 0.1
+  const zoomStep = useCallback((direction: -1 | 1) => {
+    setZoom((current) =>
+      Math.min(
+        ZOOM_MAX,
+        Math.max(ZOOM_MIN, Math.round((current + direction * ZOOM_STEP) * 10) / 10)
+      )
+    )
+  }, [])
 
   const oversized =
     activeFileOversized || (typeof activeFileSize === 'number' && activeFileSize > OFFICE_PREVIEW_MAX_BYTES)
@@ -162,6 +186,49 @@ export default function WorkbenchPptxPreview(): JSX.Element {
       for (const url of blobUrls) URL.revokeObjectURL(url)
     }
   }, [workspacePath, activeFilePath, oversized, reloadKey])
+
+  // 高保真链路：后台调用本机 Office/WPS/LibreOffice 转 PDF，完成后热切换。
+  // 转换是秒级任务且与内容预览并行，失败时静默回落——内容预览始终可用。
+  useEffect(() => {
+    if (!workspacePath || !activeFilePath) return
+    let cancelled = false
+    setHiFi(null)
+
+    window.api.workbench
+      .convertPptx(workspacePath, activeFilePath)
+      .then((result) => {
+        if (cancelled) return
+        if (result.success && result.data && result.data.size > 0) {
+          setHiFi({ pdfPath: result.data.pdfPath, size: result.data.size })
+        } else if (!result.success) {
+          console.warn('[PptxPreview] 高保真转换不可用:', result.error)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) console.warn('[PptxPreview] 高保真转换异常:', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [workspacePath, activeFilePath, reloadKey])
+
+  const readHiFiRange = useCallback(
+    (start: number, end: number) => {
+      if (!hiFi) {
+        return Promise.resolve({ success: false as const, error: '转换产物不可用' })
+      }
+      return window.api.workbench.readPptxPdfRange(hiFi.pdfPath, start, end)
+    },
+    [hiFi]
+  )
+
+  const handleHiFiLoadState = useCallback((_state: 'loading' | 'ready' | 'error', message?: string) => {
+    if (_state === 'error') {
+      console.warn('[PptxPreview] 高保真渲染失败:', message)
+      setHiFi(null)
+    }
+  }, [])
 
   const emuToPx = useCallback((emu: number): number => emu / EMU_PER_PX, [])
 
@@ -276,6 +343,24 @@ export default function WorkbenchPptxPreview(): JSX.Element {
         }
         right={
           <>
+            {hiFi && (
+              <>
+                <PreviewZoomControls
+                  zoom={zoom}
+                  minZoom={ZOOM_MIN}
+                  maxZoom={ZOOM_MAX}
+                  onZoomOut={() => zoomStep(-1)}
+                  onZoomIn={() => zoomStep(1)}
+                  onReset={() => setZoom(1)}
+                />
+                <WorkbenchReaderThemePicker
+                  value={pptxBackgroundTheme}
+                  onChange={setPptxBackgroundTheme}
+                  options={['light', 'dark']}
+                />
+                <div className="h-5 w-px mx-0.5 bg-black/10 dark:bg-white/10" />
+              </>
+            )}
             <button
               type="button"
               onClick={() => setReloadKey((k) => k + 1)}
@@ -309,7 +394,22 @@ export default function WorkbenchPptxPreview(): JSX.Element {
       />
 
       <div className="flex-1 w-full h-full relative overflow-hidden">
-        {oversized ? (
+        {hiFi ? (
+          <div className="w-full h-full bg-gray-200 dark:bg-[#141414]">
+            <WorkbenchPdfViewer
+              workspacePath={workspacePath ?? ''}
+              relativePath={activeFilePath ?? ''}
+              fileSize={hiFi.size}
+              reloadKey={reloadKey}
+              zoom={zoom}
+              backgroundTheme={pptxBackgroundTheme}
+              onZoomStep={zoomStep}
+              onLoadState={handleHiFiLoadState}
+              readRange={readHiFiRange}
+              invertContent={false}
+            />
+          </div>
+        ) : oversized ? (
           <PreviewFallbackState
             icon={
               <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 mb-4">

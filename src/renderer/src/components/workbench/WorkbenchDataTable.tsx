@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TableVirtuoso } from 'react-virtuoso'
 import {
+  buildSelectionMarkdown,
   buildMergeCoverIndex,
   expandRangeForMerges,
   extractRangeGrid,
-  gridToMarkdown,
   gridToTsv,
   normalizeCellRange,
   type CellPoint,
@@ -177,7 +177,7 @@ export default function WorkbenchDataTable(props: WorkbenchDataTableProps): JSX.
       const range = merges && merges.length > 0 ? expandRangeForMerges(base, merges) : base
       const grid = extractRangeGrid(rows, range, mergeCoverIndex)
       if (!gridToTsv(grid).trim()) return null
-      return { plain: gridToTsv(grid), aiText: gridToMarkdown(grid) }
+      return { plain: gridToTsv(grid), aiText: buildSelectionMarkdown(rows, range, mergeCoverIndex) }
     }
   })
 
@@ -467,8 +467,11 @@ export default function WorkbenchDataTable(props: WorkbenchDataTableProps): JSX.
     [selectionRange]
   )
 
+  // 注意：背景色不进 base class——Tailwind 类冲突时生效方取决于 CSS 生成顺序而非
+  // className 书写顺序（构建产物中 .bg-white 排在 .bg-[#e9e9e9] 之后曾导致选区
+  // 灰色遮罩被覆盖丢失）。每种状态必须且只能输出一个背景类。
   const cellBaseClass =
-    'border border-black/10 dark:border-white/10 px-2 py-1 text-body whitespace-nowrap overflow-hidden text-ellipsis bg-white dark:bg-gray-900 cursor-cell'
+    'border border-black/10 dark:border-white/10 px-2 py-1 text-body whitespace-nowrap overflow-hidden text-ellipsis cursor-cell'
   const chromeBaseClass =
     'border border-black/10 dark:border-white/10 px-1 py-1 text-label text-center text-text-secondary font-normal select-none cursor-cell'
 
@@ -480,7 +483,7 @@ export default function WorkbenchDataTable(props: WorkbenchDataTableProps): JSX.
       return {
         rc: `${r}:${c}`,
         className: `${cellBaseClass} ${
-          anchor ? 'bg-white dark:bg-gray-900' : selected ? 'bg-[#e9e9e9] dark:bg-white/[0.14]' : ''
+          selected && !anchor ? 'bg-[#e9e9e9] dark:bg-white/[0.14]' : 'bg-white dark:bg-gray-900'
         }`,
         boxShadow: shadow || undefined
       }

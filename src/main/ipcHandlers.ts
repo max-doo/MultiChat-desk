@@ -3,10 +3,10 @@
  * 负责处理主进程与渲染进程之间的 IPC 通信
  */
 
-import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, screen, webContents } from 'electron'
+import { app, ipcMain, dialog, clipboard, nativeImage, BrowserWindow, shell, screen, webContents } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { basename, extname, join, dirname, resolve } from 'path'
-import { stat, writeFile, mkdtemp, rm, rename } from 'fs/promises'
+import { stat, readFile, writeFile, mkdtemp, rm, rename } from 'fs/promises'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
@@ -2334,6 +2334,31 @@ export async function registerIpcHandlers(
         try {
             assertActiveWorkspace(payload.workspaceRoot)
             const data = await workbenchReadOfficeBytes(payload.workspaceRoot, payload.relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // PPTX 高保真转换：本机 Office/WPS/LibreOffice 后台转 PDF，产物落在 userData 缓存目录，
+    // 按 路径指纹 命中缓存；转换是秒级长任务，渲染层在内容预览之上静默等待完成。
+    ipcMain.handle('workbench:convert-pptx', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await convertPptxDocument(payload.workspaceRoot, payload.relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 转换产物 PDF 的分段读取：路径合法性（必须在缓存目录内）在 service 内校验，
+    // 不走工作区 assertActiveWorkspace——缓存不在工作区里。
+    ipcMain.handle('workbench:read-pptx-pdf-range', async (_event, payload: { pdfPath: string; start: number; end: number }) => {
+        try {
+            const data = await readConvertedPdfRange(payload.pdfPath, payload.start, payload.end)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

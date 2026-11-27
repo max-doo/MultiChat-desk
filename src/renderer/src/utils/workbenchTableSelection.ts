@@ -120,18 +120,54 @@ function mdCellText(cell: string): string {
   return cell.replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|')
 }
 
+/** Markdown 表格格式化：显式表头 + 数据行。 */
+function formatMarkdownTable(header: string[], bodyRows: string[][]): string {
+  const escapedHeader = header.map(mdCellText)
+  const lines: string[] = []
+  lines.push(`| ${escapedHeader.join(' | ')} |`)
+  lines.push(`| ${escapedHeader.map(() => '---').join(' | ')} |`)
+  for (const row of bodyRows) {
+    lines.push(`| ${row.map(mdCellText).join(' | ')} |`)
+  }
+  return lines.join('\n')
+}
+
 /**
- * 网格 → Markdown 表格：首行作表头（Markdown 语法强制），
+ * 网格 → Markdown 表格：网格首行作表头（Markdown 语法强制），
  * 单行选区也是合法表格（仅表头 + 分隔行）。
  */
 export function gridToMarkdown(grid: string[][]): string {
   if (grid.length === 0 || (grid[0]?.length ?? 0) === 0) return ''
-  const escaped = grid.map((row) => row.map(mdCellText))
-  const lines: string[] = []
-  lines.push(`| ${escaped[0].join(' | ')} |`)
-  lines.push(`| ${escaped[0].map(() => '---').join(' | ')} |`)
-  for (let r = 1; r < escaped.length; r += 1) {
-    lines.push(`| ${escaped[r].join(' | ')} |`)
+  return formatMarkdownTable(grid[0], grid.slice(1))
+}
+
+/**
+ * 选区 → 发送 AI 的 Markdown 表格：表头固定取表格第 1 行（数据行 0）
+ * 在选区列范围内的切片——用户语义里"表格的表头"是文件首行而不是选区首行。
+ * 选区本身含第 1 行时二者自然重合（首行进表头，不再重复进数据行）。
+ * 表头切片全空时（如 xlsx 合并标题行只覆盖部分列，切片全落在覆盖格）
+ * 回退选区首行作表头，保证输出是合法 Markdown 表格。
+ */
+export function buildSelectionMarkdown(
+  rows: string[][],
+  range: CellRange,
+  coverIndex: Map<string, { r: number; c: number }> | null
+): string {
+  const grid = extractRangeGrid(rows, range, coverIndex)
+  if (grid.length === 0 || (grid[0]?.length ?? 0) === 0) return ''
+  if (range.minR === 0) {
+    // 选区已含表头行：网格首行即表头
+    return formatMarkdownTable(grid[0], grid.slice(1))
   }
-  return lines.join('\n')
+  const headerGrid = extractRangeGrid(
+    rows,
+    { minR: 0, maxR: 0, minC: range.minC, maxC: range.maxC },
+    coverIndex
+  )
+  const header = headerGrid[0] ?? []
+  const hasHeaderContent = header.some((cell) => cell.trim() !== '')
+  if (!hasHeaderContent) {
+    return formatMarkdownTable(grid[0], grid.slice(1))
+  }
+  return formatMarkdownTable(header, grid)
 }

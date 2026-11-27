@@ -483,6 +483,10 @@ const api = {
       ipcRenderer.invoke('workbench:read-pdf-range', { workspaceRoot, relativePath, start, end }),
     readOfficeBytes: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { bytes: Uint8Array; size: number; mtime: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:read-office-bytes', { workspaceRoot, relativePath }),
+    convertPptx: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { pdfPath: string; size: number; converter: 'office-com' | 'libreoffice'; cached: boolean }; error?: string }> =>
+      ipcRenderer.invoke('workbench:convert-pptx', { workspaceRoot, relativePath }),
+    readPptxPdfRange: (pdfPath: string, start: number, end: number): Promise<{ success: boolean; data?: { bytes: Uint8Array; size: number; mtime: number }; error?: string }> =>
+      ipcRenderer.invoke('workbench:read-pptx-pdf-range', { pdfPath, start, end }),
     writeFile: (workspaceRoot: string, relativePath: string, content: string): Promise<{ success: boolean; data?: WorkbenchWriteResult; error?: string }> =>
       ipcRenderer.invoke('workbench:write-file', { workspaceRoot, relativePath, content }),
     saveTextAs: (workspaceRoot: string, payload: { defaultFileName: string; content: string; title?: string; extensions?: string[] }): Promise<{ success: boolean; data?: boolean; error?: string }> =>

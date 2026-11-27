@@ -271,6 +271,8 @@ interface WorkbenchStoreState {
   markdownBackgroundTheme: ReaderBackgroundTheme
   pdfBackgroundTheme: ReaderBackgroundTheme
   docxBackgroundTheme: ReaderBackgroundTheme
+  /** PPT 高保真预览的画布衬底主题（只有浅色/暗色两档有效），独立持久化 */
+  pptxBackgroundTheme: ReaderBackgroundTheme
   /** 待生成的选区范围；由编辑器划词菜单写入，导图面板消费后清空。 */
   pendingMindmapSelection: { text: string; headingPath: string[] } | null
   /** 待打开的来源会话；笔记属性里的会话图标写入，AI 侧边栏消费后清空。 */
@@ -423,6 +425,7 @@ interface WorkbenchStoreActions {
   setMarkdownBackgroundTheme: (theme: ReaderBackgroundTheme) => void
   setPdfBackgroundTheme: (theme: ReaderBackgroundTheme) => void
   setDocxBackgroundTheme: (theme: ReaderBackgroundTheme) => void
+  setPptxBackgroundTheme: (theme: ReaderBackgroundTheme) => void
   askAi: (text: string, actionType: WorkbenchAiAction, target?: 'ai' | 'ai2') => void
   clearError: () => void
   showNotice: (message: string) => void
@@ -1192,6 +1195,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   markdownBackgroundTheme: 'light',
   pdfBackgroundTheme: 'light',
   docxBackgroundTheme: 'light',
+  pptxBackgroundTheme: 'light',
   pendingMindmapSelection: null,
   pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
@@ -1279,6 +1283,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedMarkdownBgTheme,
         savedPdfBgTheme,
         savedDocxBgTheme,
+        savedPptxBgTheme,
         savedContentWidth,
         savedWorkspaceTabs
       ] = await Promise.all([
@@ -1299,6 +1304,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_markdownBgTheme') as Promise<ReaderBackgroundTheme | null>,
         window.api.storeGet('workbench_pdfBgTheme') as Promise<ReaderBackgroundTheme | null>,
         window.api.storeGet('workbench_docxBgTheme') as Promise<ReaderBackgroundTheme | null>,
+        window.api.storeGet('workbench_pptxBgTheme') as Promise<ReaderBackgroundTheme | null>,
         window.api.storeGet('workbench_contentWidth') as Promise<WorkbenchContentWidth | null>,
         window.api.storeGet(WORKSPACE_TABS_STORE_KEY) as Promise<unknown>
       ])
@@ -1395,6 +1401,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       if (isReaderBackgroundTheme(savedDocxBgTheme)) {
         updates.docxBackgroundTheme = savedDocxBgTheme
+      }
+      // PPT 只开放浅色/暗色两档，历史异常值直接回落浅色
+      if (savedPptxBgTheme === 'light' || savedPptxBgTheme === 'dark') {
+        updates.pptxBackgroundTheme = savedPptxBgTheme
       }
 
       // 确保默认工作区存在（首次启动会创建），随后无论上次是否有保存的工作区，都先把默认路径放到 store
@@ -3767,6 +3777,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   setDocxBackgroundTheme: (theme: ReaderBackgroundTheme) => {
     set({ docxBackgroundTheme: theme })
     void window.api.storeSet('workbench_docxBgTheme', theme)
+  },
+
+  setPptxBackgroundTheme: (theme: ReaderBackgroundTheme) => {
+    set({ pptxBackgroundTheme: theme })
+    void window.api.storeSet('workbench_pptxBgTheme', theme)
   },
 
   askAi: (text: string, actionType: WorkbenchAiAction, target: 'ai' | 'ai2' = 'ai') => {
