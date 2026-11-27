@@ -1441,32 +1441,76 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('save-image-from-url', async (_event, imageUrl: string) => {
+    ipcMain.handle('save-image-from-url', async (event, imageUrl: string, defaultDir?: string) => {
         try {
             let defaultName = 'image'
-            try {
-                const u = new URL(imageUrl)
-                const base = basename(u.pathname) || ''
-                defaultName = base || defaultName
-            } catch {
-                // URL 解析失败时使用默认文件名
+            if (/^data:/i.test(imageUrl)) {
+                const mimeMatch = imageUrl.match(/^data:image\/([a-z0-9.+-]+)(?:;|,)/i)
+                const rawExt = mimeMatch?.[1]?.toLowerCase()
+                const ext =
+                    rawExt === 'jpeg'
+                        ? 'jpg'
+                        : rawExt === 'svg+xml'
+                            ? 'svg'
+                            : rawExt === 'x-icon' || rawExt === 'vnd.microsoft.icon'
+                                ? 'ico'
+                                : rawExt || 'png'
+                defaultName = `image.${ext}`
+            } else {
+                try {
+                    const u = new URL(imageUrl)
+                    const base = basename(u.pathname) || ''
+                    defaultName = base || defaultName
+                } catch {
+                    // URL 解析失败时使用默认文件名
+                }
             }
 
-            const result = await dialog.showSaveDialog({
+            let defaultPath = defaultName
+            if (typeof defaultDir === 'string' && defaultDir.trim()) {
+                const candidateDir = defaultDir.trim()
+                const isValidDir = await stat(candidateDir).then((s) => s.isDirectory()).catch(() => false)
+                if (isValidDir) {
+                    defaultPath = join(candidateDir, defaultName)
+                }
+            }
+
+            const owner = BrowserWindow.fromWebContents(event.sender)
+            const dialogOptions: Electron.SaveDialogOptions = {
                 title: '图片另存为',
-                defaultPath: defaultName,
-                filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]
-            })
+                defaultPath,
+                filters: [
+                    { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'] },
+                    { name: '所有文件', extensions: ['*'] }
+                ]
+            }
+            const result =
+                owner && !owner.isDestroyed()
+                    ? await dialog.showSaveDialog(owner, dialogOptions)
+                    : await dialog.showSaveDialog(dialogOptions)
             if (result.canceled || !result.filePath) {
                 return { success: false, error: '用户取消' }
             }
             const filePath = result.filePath
 
-            if (imageUrl.startsWith('data:')) {
-                const match = imageUrl.match(/^data:(.*?);base64,(.*)$/)
-                if (!match) return { success: false, error: '无效图片数据' }
-                const content = Buffer.from(match[2], 'base64')
-                const { writeFile } = await import('fs/promises')
+            if (/^data:/i.test(imageUrl)) {
+                const commaIndex = imageUrl.indexOf(',')
+                if (commaIndex === -1) return { success: false, error: '无效图片数据' }
+                const header = imageUrl.slice(5, commaIndex)
+                const payload = imageUrl.slice(commaIndex + 1)
+                let content: Buffer
+                if (/(?:^|;)base64(?:;|$)/i.test(header)) {
+                    const normalized = payload.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
+                    content = Buffer.from(normalized, 'base64')
+                } else {
+                    let decoded = payload
+                    try {
+                        decoded = decodeURIComponent(payload)
+                    } catch {
+                        // 保留原始文本
+                    }
+                    content = Buffer.from(decoded, 'utf8')
+                }
                 await writeFile(filePath, content)
                 return { success: true, filePath }
             }
@@ -1488,7 +1532,6 @@ export async function registerIpcHandlers(
             }
             const arrayBuffer = await response.arrayBuffer()
             const buffer = Buffer.from(arrayBuffer)
-            const { writeFile } = await import('fs/promises')
             await writeFile(filePath, buffer)
             return { success: true, filePath }
         } catch (error) {
@@ -1508,6 +1551,63 @@ export async function registerIpcHandlers(
             }
             wc.copyImageAt(Math.round(x), Math.round(y))
             return { success: true }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
+    // 渲染层解码后的图片字节写剪贴板（用于 data: base64 / canvas 转码后的 PNG），不受 iframe 焦点或 CSP 限制
+    ipcMain.handle('workbench:copy-image-buffer', (_event, data: ArrayBuffer | Uint8Array) => {
+        try {
+            let buf: Buffer
+            if (data instanceof ArrayBuffer) {
+                buf = Buffer.from(data)
+            } else if (ArrayBuffer.isView(data)) {
+                buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+            } else {
+                return { success: false, error: '无效的图片数据' }
+            }
+            const img = nativeImage.createFromBuffer(buf)
+            if (img.isEmpty()) {
+                return { success: false, error: '无法解析图片数据' }
+            }
+            clipboard.writeImage(img)
+            return { success: true }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
+    // HTML 预览内嵌 workbench-file:// 图片复制：主进程直接读取本地原图，SVG/WebP 等返回 dataUrl 交渲染层栅格化
+    ipcMain.handle('workbench:copy-image-from-url', async (_event, imageUrl: string) => {
+        try {
+            if (typeof imageUrl !== 'string' || !imageUrl.startsWith(`${WORKBENCH_FILE_SCHEME}://`)) {
+                return { success: false, error: '仅支持 workbench-file:// URL' }
+            }
+            const realPath = await resolveWorkbenchFileRequest(imageUrl)
+            if (!realPath) {
+                return { success: false, error: '图片路径不在已授权工作区内' }
+            }
+            const img = nativeImage.createFromPath(realPath)
+            if (!img.isEmpty()) {
+                clipboard.writeImage(img)
+                return { success: true }
+            }
+            const ext = extname(realPath).toLowerCase()
+            const mimeMap: Record<string, string> = {
+                '.svg': 'image/svg+xml',
+                '.webp': 'image/webp',
+                '.gif': 'image/gif',
+                '.bmp': 'image/bmp',
+                '.ico': 'image/x-icon',
+                '.avif': 'image/avif'
+            }
+            const mime = mimeMap[ext] || 'image/png'
+            const bytes = await readFile(realPath)
+            return {
+                success: false,
+                data: { dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }
+            }
         } catch (error) {
             return { success: false, error: String(error) }
         }

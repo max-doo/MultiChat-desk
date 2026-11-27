@@ -10,6 +10,12 @@ import { useAgentSessionStore } from '../store/agentSessionStore'
 import { captureContextOf } from '../utils/annotationCaptureContext'
 import { AppIcon } from './icons/AppIcon'
 import { requestAskWebview, requestSendImageToAi } from './workbench/workbenchAiEvents'
+import {
+  copyHtmlImageToClipboard,
+  copyImageElementToClipboard
+} from '../utils/imageClipboard'
+
+export { copyImageElementToClipboard }
 
 interface ExtendedMenuItem extends ContextMenuItem {
   action?: () => void
@@ -38,43 +44,6 @@ function isEditableEl(el: HTMLElement | null): boolean {
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 const cmdOrCtrl = isMac ? '⌘' : 'Ctrl+'
-
-/**
- * 右键"复制图片"的通用实现：
- * - ClipboardItem 只可靠支持 PNG/JPEG，BMP/WebP 等先经 canvas 转成 PNG 再写。
- * - workbench-file:// 与 blob: 对主进程不可见，必须在渲染层完成复制。
- */
-export async function copyImageElementToClipboard(img: HTMLImageElement): Promise<void> {
-  const blob = await fetch(img.src).then((res) => {
-    if (!res.ok) throw new Error(`下载失败: ${res.status}`)
-    return res.blob()
-  })
-
-  const writePngBlob = async (png: Blob): Promise<void> => {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
-  }
-
-  if (blob.type === 'image/png' || blob.type === 'image/jpeg') {
-    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
-    return
-  }
-
-  // 非 PNG/JPEG（如 docx 内嵌 BMP）：canvas 转 PNG 再写剪贴板
-  const bitmap = await createImageBitmap(blob)
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('无法创建 canvas 上下文')
-    ctx.drawImage(bitmap, 0, 0)
-    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-    if (!png) throw new Error('图片转码失败')
-    await writePngBlob(png)
-  } finally {
-    bitmap.close()
-  }
-}
 
 function appendWorkbenchAiItems(
   items: ExtendedContextMenuEntry[],
@@ -199,7 +168,11 @@ export default function CustomContextMenu(): JSX.Element | null {
             label: '复制图片',
             icon: 'image',
             action: async () => {
-              await window.api?.workbench?.copyHtmlImageAt?.(image.x, image.y)
+              try {
+                await copyHtmlImageToClipboard(image.srcURL, { x: image.x, y: image.y })
+              } catch (err) {
+                console.error('[ContextMenu] 复制 HTML 图片失败:', err)
+              }
             }
           })
           items.push({
@@ -207,7 +180,8 @@ export default function CustomContextMenu(): JSX.Element | null {
             label: '图片另存为...',
             icon: 'download',
             action: () => {
-              void window.api?.saveImageFromURL?.(image.srcURL)
+              const workspacePath = useWorkbenchStore.getState().workspacePath || undefined
+              void window.api?.saveImageFromURL?.(image.srcURL, workspacePath)
             }
           })
         }
@@ -408,7 +382,8 @@ export default function CustomContextMenu(): JSX.Element | null {
           label: '图片另存为...',
           icon: 'download',
           action: () => {
-            void window.api?.saveImageFromURL?.(imgEl.src)
+            const workspacePath = useWorkbenchStore.getState().workspacePath || undefined
+            void window.api?.saveImageFromURL?.(imgEl.src, workspacePath)
           }
         })
       }

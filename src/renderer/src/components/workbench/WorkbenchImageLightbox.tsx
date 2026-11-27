@@ -18,6 +18,8 @@ export interface LightboxImageItem {
   src: string
   altText: string
   title?: string
+  /** 为 true 时顶部标题胶囊不展示文件名（仅保留像素尺寸），适用于 base64 图片。 */
+  hideTitle?: boolean
 }
 
 interface WorkbenchImageLightboxProps {
@@ -78,17 +80,30 @@ export default function WorkbenchImageLightbox({
   // 图片右键菜单：菜单尺寸由真实 DOM 测量后钳位进视口
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [menuPos, setMenuPos] = useState<{ left: number; top: number; flippedY?: boolean } | null>(null)
+  const [copiedImage, setCopiedImage] = useState(false)
+  const [attachedToComposer, setAttachedToComposer] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
+  const feedbackTimerRef = useRef<number | null>(null)
 
   const closeMenu = useCallback(() => {
     setMenu(null)
   }, [])
 
   useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current !== null) {
+        window.clearTimeout(feedbackTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     if (!open) return
     closeMenu()
     resetAll()
+    setCopiedImage(false)
+    setAttachedToComposer(false)
   }, [open, activeIndex, currentItem?.nodeKey, currentItem?.src, resetAll, closeMenu])
 
   useEffect(() => {
@@ -225,7 +240,7 @@ export default function WorkbenchImageLightbox({
   ])
 
   const displayTitle = useMemo(() => {
-    if (!currentItem) return ''
+    if (!currentItem || currentItem.hideTitle) return ''
     if (currentItem.altText.trim()) return currentItem.altText.trim()
     const raw = currentItem.src
     if (raw.startsWith('data:')) return '内嵌图片'
@@ -251,6 +266,12 @@ export default function WorkbenchImageLightbox({
     if (currentItem) void navigator.clipboard.writeText(currentItem.src)
   }, [closeMenu, currentItem])
 
+  const flashCopiedImage = useCallback(() => {
+    setCopiedImage(true)
+    if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current)
+    feedbackTimerRef.current = window.setTimeout(() => setCopiedImage(false), 1500)
+  }, [])
+
   // 复制图片：优先主进程 copyImageAt 保留原图编码，失败退化渲染层转码
   const handleCopyImage = useCallback(() => {
     closeMenu()
@@ -263,14 +284,39 @@ export default function WorkbenchImageLightbox({
           const x = rect.left + rect.width / 2
           const y = rect.top + rect.height / 2
           const result = await window.api?.workbench?.copyHtmlImageAt?.(x, y)
-          if (result?.success) return
+          if (result?.success) {
+            flashCopiedImage()
+            return
+          }
         }
         await copyImageElementToClipboard(img)
+        flashCopiedImage()
       } catch (err) {
         console.error('[ImageLightbox] 复制图片失败:', err)
       }
     })()
-  }, [closeMenu])
+  }, [closeMenu, flashCopiedImage])
+
+  const handleSaveImage = useCallback(() => {
+    const src = resolvedUrl
+    closeMenu()
+    if (src) void window.api?.saveImageFromURL?.(src, workspacePath || undefined)
+  }, [closeMenu, resolvedUrl, workspacePath])
+
+  const handleAttachToComposer = useCallback(() => {
+    closeMenu()
+    if (!onAttachToComposer || !currentItem) return
+    onAttachToComposer(currentItem)
+    setAttachedToComposer(true)
+    if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current)
+    feedbackTimerRef.current = window.setTimeout(() => setAttachedToComposer(false), 1500)
+  }, [closeMenu, currentItem, onAttachToComposer])
+
+  const handleRemoveCurrent = useCallback(() => {
+    closeMenu()
+    if (!onRemoveAt || !currentItem) return
+    onRemoveAt(activeIndex, currentItem)
+  }, [activeIndex, closeMenu, currentItem, onRemoveAt])
 
   // 主菜单按真实尺寸贴合光标并钳位进视口，避免右下角溢出
   useLayoutEffect(() => {

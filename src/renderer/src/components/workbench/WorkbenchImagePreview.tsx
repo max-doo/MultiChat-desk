@@ -28,6 +28,7 @@ interface PreviewMenuState {
 }
 
 export default function WorkbenchImagePreview(): JSX.Element {
+  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
   const activeFileUrl = useWorkbenchStore((s) => s.activeFileUrl)
@@ -575,7 +576,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
               onClick={() => {
                 const src = imageSrcUrl
                 closeMenu()
-                if (src) void window.api?.saveImageFromURL?.(src)
+                if (src) void window.api?.saveImageFromURL?.(src, workspacePath || undefined)
               }}
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
             >

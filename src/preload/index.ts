@@ -374,8 +374,8 @@ const api = {
   getAppVersion: (): Promise<{ success: boolean; data?: string; error?: string }> =>
     ipcRenderer.invoke('app:get-version'),
 
-  saveImageFromURL: (url: string): Promise<{ success: boolean; filePath?: string; error?: string }> =>
-    ipcRenderer.invoke('save-image-from-url', url),
+  saveImageFromURL: (url: string, defaultDir?: string): Promise<{ success: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('save-image-from-url', url, defaultDir),
   downloadAllImages: (payload: {
     items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
   }): Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }> =>
@@ -600,6 +600,10 @@ const api = {
     },
     copyHtmlImageAt: (x: number, y: number): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('workbench:copy-image-at', x, y),
+    copyImageBuffer: (data: ArrayBuffer | Uint8Array): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:copy-image-buffer', data),
+    copyHtmlImageFromUrl: (imageUrl: string): Promise<{ success: boolean; data?: { dataUrl: string }; error?: string }> =>
+      ipcRenderer.invoke('workbench:copy-image-from-url', imageUrl),
     // 图片右键"发送到 AI 侧边栏"：解析 workbench-file:// 拿到真实磁盘路径直接上传
     resolveFileUrl: (imageUrl: string): Promise<{ success: boolean; data?: { filePath: string }; error?: string }> =>
       ipcRenderer.invoke('workbench:resolve-file-url', imageUrl)

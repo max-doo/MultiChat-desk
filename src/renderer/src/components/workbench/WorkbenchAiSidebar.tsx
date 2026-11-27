@@ -33,6 +33,18 @@ import {
 } from './workbenchAiEvents'
 import { getFileCategory, type WorkbenchFileNode } from '../../../../shared/types/workbench'
 import { dedupeByKey } from './agent/filePathUtils'
+import {
+  dataUrlToBlob,
+  getImageExtFromMime,
+  rasterizeBlobToPngBlob
+} from '../../utils/imageClipboard'
+
+const SUPPORTED_IMAGE_ATTACHMENT_MIMES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif'
+])
 
 const INSERT_PREFIX = '__MC_INSERT_CURRENT__'
 const SAVE_PREFIX = '__MC_SAVE_NEW__'
@@ -186,6 +198,21 @@ function enqueueSidebarLifecycleTask<T>(
 /** 等 React 把 WebviewCard 的最新 isHibernated/actions 提交到 ref 后再继续操作。 */
 function waitForSidebarCommit(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string' && reader.result) {
+        resolve(reader.result)
+      } else {
+        reject(new Error('读取图片数据失败'))
+      }
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('读取图片数据失败'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 /** 提示条只展示结论，超长错误详情放进控制台，避免撑满侧边栏。 */
@@ -1528,7 +1555,9 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
   /**
    * 图片右键「发送到 AI 侧边栏」：
    * - workbench-file:// 直接解析真实磁盘路径上传，不复制临时文件；
-   * - blob:/data:/http(s): 走 create-temp-upload-file 落临时目录，上传完即清理。
+   * - blob:/data:/http(s):
+   *   - 本地 Agent 模式直接转为 dataUrl 写入图片附件通道（与粘贴图片一致，避免临时文件被清理）；
+   *   - 网页平台走 create-temp-upload-file 落临时目录，上传完即清理。
    */
   useEffect(() => {
     const handleSendImage = (event: Event) => {
@@ -1545,7 +1574,12 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
 
       runAfterPanePaint(() => {
         void (async (): Promise<void> => {
+          const isDataUrl = /^data:/i.test(srcURL)
+          const isBlobUrl = /^blob:/i.test(srcURL)
           const nameFromUrl = (() => {
+            if (isDataUrl || isBlobUrl) {
+              return detail.fileName?.trim() || 'image'
+            }
             try {
               const u = new URL(srcURL)
               const base = decodeURIComponent(u.pathname.split('/').pop() || '')
@@ -1570,21 +1604,49 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
             return
           }
 
-          // 其余协议：渲染层 fetch 拿到字节，经临时文件走既有上传管线
+          // 其余协议：data: URL 直接本地解码（绕过 fetch/CSP），其它协议经 fetch 取字节
           let tempFilePath: string | null = null
           try {
-            const blob = await fetch(srcURL).then((res) => {
-              if (!res.ok) throw new Error(`下载失败 ${res.status}`)
-              return res.blob()
-            })
-            const mimeType = blob.type || getMimeType(nameFromUrl)
+            let blob = isDataUrl
+              ? dataUrlToBlob(srcURL)
+              : await fetch(srcURL).then((res) => {
+                  if (!res.ok) throw new Error(`下载失败 ${res.status}`)
+                  return res.blob()
+                })
+            let rawMime = (blob.type || getMimeType(nameFromUrl)).toLowerCase()
+            if (rawMime === 'image/jpg') rawMime = 'image/jpeg'
+            let mimeType = rawMime.startsWith('image/') ? rawMime : 'image/png'
+
+            // SVG / BMP / ICO 等非通用视觉模型格式先栅格化为 PNG，确保 Agent 与网页平台都能识别
+            if (!SUPPORTED_IMAGE_ATTACHMENT_MIMES.has(mimeType)) {
+              try {
+                blob = await rasterizeBlobToPngBlob(blob, isDataUrl ? srcURL : undefined)
+                mimeType = 'image/png'
+              } catch {
+                // 栅格化失败时保留原格式继续尝试上传
+              }
+            }
+
             // 文件名补全扩展名，便于平台端识别图片类型
-            const extFromMime = mimeType.startsWith('image/')
-              ? `.${mimeType.slice('image/'.length).replace('jpeg', 'jpg')}`
-              : ''
+            const extFromMime = getImageExtFromMime(mimeType)
             const fileName = /\.[a-z0-9]+$/i.test(nameFromUrl)
               ? nameFromUrl
-              : `${nameFromUrl}${extFromMime || '.png'}`
+              : `${nameFromUrl}${extFromMime}`
+
+            if (currentModel?.id === 'local-agent') {
+              const rawDataUrl = await blobToDataUrl(blob)
+              const dataUrl = rawDataUrl.startsWith('data:application/octet-stream;')
+                ? `data:${mimeType};${rawDataUrl.slice('data:application/octet-stream;'.length)}`
+                : rawDataUrl
+              setHasUsedAgent(true)
+              useAgentSessionStore.getState().addImageAttachment({
+                dataUrl,
+                mimeType,
+                name: fileName
+              })
+              return
+            }
+
             const temp = await window.api.createTempUploadFile({
               fileName,
               mimeType,
@@ -1615,7 +1677,7 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
 
     window.addEventListener(WORKBENCH_SEND_IMAGE_EVENT, handleSendImage)
     return () => window.removeEventListener(WORKBENCH_SEND_IMAGE_EVENT, handleSendImage)
-  }, [instanceKey, isSecondary, openAiSidebar2, openRightPane, showToast, uploadFilesToCurrentModel])
+  }, [currentModel, instanceKey, isSecondary, openAiSidebar2, openRightPane, showToast, uploadFilesToCurrentModel])
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
