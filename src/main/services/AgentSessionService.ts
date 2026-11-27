@@ -211,9 +211,6 @@ export class AgentSessionService {
     { event: AgentSessionEvent | LocalAgentEvent; timer: ReturnType<typeof setTimeout> }
   >()
 
-  private defaultProvider = MAGPIE_PROVIDER.providerId
-  private defaultModel = 'devin/swe-2'
-
   constructor(
     private store: Store<Record<string, unknown>>,
     private getWebContents: () => WebContents | null
@@ -571,11 +568,10 @@ export class AgentSessionService {
     const provider = MAGPIE_PROVIDER
     const registered = this.modelRuntime.getRegisteredProviderConfig(provider.providerId)
     if (!registered) {
-      // Seed the catalog from the last persisted fetch so a cold start with
-      // the gateway offline still exposes the full model list.
+      // 目录不写死：冷启动仅回退到上次成功拉取的持久化缓存；缓存为空则
+      // 先注册空目录，等后台实时拉取填充——网关离线时不显示任何死模型。
       const stored = await provider.loadStoredModels(this.agentDir)
-      const initial = stored.length > 0 ? stored : provider.seedModels
-      const { models: enrichedInitial } = await this.catalogEnricher.enrichModels(initial)
+      const { models: enrichedInitial } = await this.catalogEnricher.enrichModels(stored)
       this.modelRegistry.registerProvider(provider.providerId, {
         name: provider.name,
         baseUrl: provider.baseUrl,
@@ -586,8 +582,8 @@ export class AgentSessionService {
     // registerProvider kicks off an async availability refresh; wait for it so
     // the first snapshot already reports the local models as usable.
     await this.modelRuntime.refresh({ allowNetwork: false, providers: [provider.providerId] })
-    // Pull the live catalog in the background; failures keep the static
-    // fallback above, so the gateway being down never blocks startup.
+    // Pull the live catalog in the background; failures keep the persisted
+    // cache above, so the gateway being down never blocks startup.
     void provider
       .fetchModels()
       .then((models) => this.applyGatewayCatalog(provider, models))
@@ -1373,9 +1369,11 @@ export class AgentSessionService {
 
   private getActiveModelObject(providerId?: string, modelId?: string): Model<Api> | undefined {
     if (!this.modelRegistry) return undefined
-    let prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
-    let mod = modelId || (this.store.get('agent_active_model') as string) || this.defaultModel
-    if (this.isProviderDisabled(prov)) {
+    let prov = providerId || (this.store.get('agent_active_provider') as string)
+    let mod = modelId || (this.store.get('agent_active_model') as string)
+    if (!prov || !mod || this.isProviderDisabled(prov)) {
+      // 无内置默认供应商：未存储或已停用时回退到第一个启用且可用的模型，
+      // 一个都没有则返回 undefined，由调用方报错（UI 有空态引导）。
       const fallback = this.firstEnabledModel()
       if (!fallback) return undefined
       prov = fallback.providerId
@@ -1574,8 +1572,8 @@ export class AgentSessionService {
       session,
       cwd,
       permissionMode,
-      modelId: session.model?.id ?? this.defaultModel,
-      providerId: (session.model as { provider?: string } | undefined)?.provider ?? this.defaultProvider,
+      modelId: session.model?.id ?? '',
+      providerId: (session.model as { provider?: string } | undefined)?.provider ?? '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       unsubscribe
@@ -2804,7 +2802,7 @@ export class AgentSessionService {
     }
     const runtime = this.modelRuntime
     if (!runtime) throw new Error('Agent 运行时尚未初始化')
-    const prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
+    const prov = providerId || (this.store.get('agent_active_provider') as string) || this.firstEnabledModel()?.providerId || ''
     if (this.isProviderDisabled(prov)) {
       throw new Error(`供应商 ${prov} 已停用`)
     }
@@ -3141,9 +3139,9 @@ export class AgentSessionService {
 
   private getActiveModelInfo(sessionId?: string): AgentActiveModel {
     const session = this.resolveSession(sessionId)
-    let storedProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
-    let storedModel = (this.store.get('agent_active_model') as string) || this.defaultModel
-    if (this.isProviderDisabled(storedProvider)) {
+    let storedProvider = (this.store.get('agent_active_provider') as string) || ''
+    let storedModel = (this.store.get('agent_active_model') as string) || ''
+    if (!storedProvider || !storedModel || this.isProviderDisabled(storedProvider)) {
       const fallback = this.firstEnabledModel()
       if (fallback) {
         storedProvider = fallback.providerId
@@ -3354,7 +3352,7 @@ export class AgentSessionService {
     if (disabled) {
       // 停用只是视图开关，不触碰收藏/最近数据：它们是用户意图，重新启用后应原样恢复。
       // 模型确实消失的清理由目录刷新成功后的 pruneCatalogedKeys 负责。
-      const activeProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
+      const activeProvider = (this.store.get('agent_active_provider') as string) || ''
       if (activeProvider === providerId) {
         const fallback = this.firstEnabledModel()
         if (fallback) {
@@ -3494,9 +3492,9 @@ export class AgentSessionService {
   }
 
   public getActiveModel(): { providerId: string; modelId: string; baseUrl?: string } {
-    let prov = (this.store.get('agent_active_provider') as string) || this.defaultProvider
-    let mod = (this.store.get('agent_active_model') as string) || this.defaultModel
-    if (this.isProviderDisabled(prov)) {
+    let prov = (this.store.get('agent_active_provider') as string) || ''
+    let mod = (this.store.get('agent_active_model') as string) || ''
+    if (!prov || !mod || this.isProviderDisabled(prov)) {
       const fallback = this.firstEnabledModel()
       if (fallback) {
         prov = fallback.providerId

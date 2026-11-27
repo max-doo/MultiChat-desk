@@ -293,7 +293,10 @@ export function AgentComposer(): JSX.Element {
 
   const currentModeInfo = permissionModeLabels[permissionMode] || permissionModeLabels.default
   const active = sessionStatus?.active ?? snapshot?.active
-  const modelLabel = active?.modelName || activeModel
+  // 无可用模型时也必须显示文字入口（「选择模型」），否则触发器只剩一个箭头，
+  // 用户无从发现模型配置入口；点击后 picker 空态会引导连接供应商。
+  const hasActiveModel = Boolean(active?.modelName || activeModel)
+  const modelLabel = active?.modelName || activeModel || '选择模型'
   const thinkingLevel: AgentThinkingLevel = active?.thinkingLevel ?? 'off'
   const thinkingLevels = active?.availableThinkingLevels ?? []
   const supportsThinking = Boolean(active?.supportsThinking && thinkingLevels.length > 1)
@@ -549,7 +552,13 @@ export function AgentComposer(): JSX.Element {
                     : modelLabel
                 }
               >
-                <span className="font-medium truncate max-w-[140px]">{modelLabel}</span>
+                <span
+                  className={`font-medium truncate max-w-[140px] ${
+                    hasActiveModel ? '' : 'text-text-secondary dark:text-slate-400'
+                  }`}
+                >
+                  {modelLabel}
+                </span>
                 {supportsThinking && (
                   <>
                     <span className="text-slate-300 dark:text-slate-600">·</span>

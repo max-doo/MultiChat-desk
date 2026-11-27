@@ -13,7 +13,7 @@ import { redactCredential, safeError } from './redact'
 
 /**
  * Generic adapter for any OpenAI- or Anthropic-compatible gateway that exposes
- * a `/v1/models` listing (LiteLLM, one-api, new-api, sub2api, local magpie, ...).
+ * a `/v1/models` listing (LiteLLM, one-api, new-api, sub2api, 本地自建网关, ...).
  */
 
 export interface GatewayModelEntry {
@@ -357,21 +357,13 @@ export class CustomGatewayProvider {
   }
 }
 
+/**
+ * 内置本地 AI 网关供应商。模型目录不写死：完全来自网关 /v1/models 实时拉取
+ * （冷启动回退到上次成功拉取的持久化缓存），网关离线时无可用模型而非显示死模型。
+ */
 export const MAGPIE_PROVIDER = new CustomGatewayProvider({
   providerId: 'magpie',
   name: 'Magpie',
   baseUrl: 'http://127.0.0.1:3425/v1',
-  apiKey: 'magpie',
-  seedModels: [
-    {
-      id: 'devin/swe-2',
-      name: 'SWE-2 · Devin',
-      api: 'openai-completions',
-      reasoning: true,
-      input: ['text', 'image'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 262000,
-      maxTokens: 128000
-    }
-  ]
+  apiKey: 'magpie'
 })
