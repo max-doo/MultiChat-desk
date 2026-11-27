@@ -11,6 +11,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: ^1.6.0
         version: 1.6.0(@aws-sdk/credential-provider-node@3.972.98)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1)(ws@8.23.0)
+      '@mlightcad/emf-converter':
+        specifier: 1.16.5
+        version: 1.16.5
       electron-store:
         specifier: ^8.1.0
         version: 8.2.0
@@ -1327,6 +1330,9 @@ packages:
 
   '@mixmark-io/domino@2.2.0':
     resolution: {integrity: sha512-Y28PR25bHXUg88kCV7nivXrP2Nj2RueZ3/l/jdx6J9f8J4nsEGcgX0Qe6lt7Pa+J79+kPiJU3LguR6O/6zrLOw==}
+
+  '@mlightcad/emf-converter@1.16.5':
+    resolution: {integrity: sha512-XKxngyPC8qkbOUfBbWFZVPvcGmdROxg5IH5FhxLOC6VzbMsFBnj7qrp7IiOKLjlTbd+8zXKDNTUMR1ldUfeklg==}
 
   '@napi-rs/canvas-android-arm64@0.1.100':
     resolution: {integrity: sha512-hjhCKhntPv9+t4ckHymdx0phYNcVW+GKQR6Lzw2zE+pOVjOplSmtx9nNNknTjbEDLcuLZqA1y8ufKg1XfgftzQ==}
@@ -5846,6 +5852,8 @@ snapshots:
   '@marijn/find-cluster-break@1.0.4': {}
 
   '@mixmark-io/domino@2.2.0': {}
+
+  '@mlightcad/emf-converter@1.16.5': {}
 
   '@napi-rs/canvas-android-arm64@0.1.100':
     optional: true

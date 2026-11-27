@@ -3,6 +3,8 @@ import type { Options } from 'docx-preview'
 import { DOCX_PREVIEW_MAX_BYTES } from '../../../../shared/types/workbench'
 import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
 import { formatFileSize } from '../../utils/formatBytes'
+import { convertMetafileImages } from '../../utils/docxMetafileImages'
+import { normalizeWideFloatingTables, paginateDocxFlow } from '../../utils/docxPagination'
 import { AppIcon } from '../icons/AppIcon'
 import FileTypeIcon from './FileTypeIcon'
 import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
@@ -16,7 +18,7 @@ import {
   PreviewZoomControls
 } from './WorkbenchPreviewChrome'
 
-const ZOOM_MIN = 0.5
+const ZOOM_MIN = 0.3
 const ZOOM_MAX = 3
 const ZOOM_STEP = 0.1
 const WHEEL_ZOOM_THRESHOLD = 100
@@ -253,31 +255,48 @@ export default function WorkbenchDocxPreview(): JSX.Element {
   )
 
   /**
-   * 按容器宽度缩放整页文档。
-   * Word 页宽通常 21cm（约 794px），窄于容器时保持 1:1，避免文字被放大；
-   * 适应宽度只缩小不放大，用户手动缩放在此基础上叠加。
+   * 按容器宽度缩放文档页面并排布多列。
+   * 缩放作用在每个 page section 上，列数由缩放后的页宽除以容器宽度显式计算
+   * （不依赖 flex-wrap 的内在宽度推断——zoom 缩放与 fit-content 组合在 Chromium
+   * 下换行判定不可靠），wrapper 宽度按列数精确给定，等价于 Word 阅读版式多页视图。
+   * 基准取全部页的最大宽度，避免横向页面溢出容器。
    */
   const fitToWidth = useCallback(() => {
     const scroller = scrollRef.current
     const container = contentRef.current
     if (!scroller || !container) return
-    // 只处理本次渲染换入的 wrapper，避免匹配到游离节点或残留内容
     const wrapper = Array.from(container.children).find((el) =>
       el.classList.contains('docx-wrapper')
     ) as HTMLElement | undefined
     if (!wrapper) return
 
-    let baseWidth = basePageWidthRef.current
-    if (baseWidth <= 0) {
-      const page = wrapper.querySelector<HTMLElement>('section.docx')
-      if (!page) return
-      baseWidth = page.offsetWidth
-      if (baseWidth > 0) basePageWidthRef.current = baseWidth
-    }
+    const pages = Array.from(wrapper.querySelectorAll<HTMLElement>(':scope > section.docx'))
+    if (pages.length === 0) return
     // 与容器左右 padding 对齐（px-6 = 24px/侧）
     const available = scroller.clientWidth - 48
-    if (baseWidth <= 0 || available <= 0) return
-    wrapper.style.zoom = String(Math.min(1, available / baseWidth) * zoomRef.current)
+    if (available <= 0) return
+
+    let baseWidth = basePageWidthRef.current
+    if (baseWidth <= 0) {
+      // zoom 未应用前量一次原始页宽；已应用过时按当前缩放值还原
+      const first = pages[0]
+      const currentZoom = parseFloat(first.style.zoom) || 1
+      baseWidth = Math.max(...pages.map((p) => p.getBoundingClientRect().width / currentZoom))
+      if (baseWidth > 0) basePageWidthRef.current = baseWidth
+    }
+    if (baseWidth <= 0) return
+
+    const scale = Math.min(1, available / baseWidth) * zoomRef.current
+    for (const page of pages) {
+      page.style.zoom = scale === 1 ? '' : String(scale)
+    }
+
+    // 显式网格列控制：列数与轨道宽度都由 JS 计算，不依赖 flex-wrap 的内在
+    // 宽度推断（zoom 缩放 + flex 换行在 Chromium 下对复杂内容的判定不可靠）。
+    const gap = 20
+    const scaledWidth = baseWidth * scale
+    const columns = Math.max(1, Math.floor((available + gap) / (scaledWidth + gap)))
+    wrapper.style.gridTemplateColumns = `repeat(${columns}, ${scaledWidth}px)`
   }, [])
 
   // 手动缩放改变时重算；走 ref 是为了避免 fitToWidth 依赖 zoom 后
@@ -310,18 +329,27 @@ export default function WorkbenchDocxPreview(): JSX.Element {
       if (cancelled) return
 
       // 先让加载态完成一次绘制，再进入同步的 OOXML 解析与 DOM 构建。
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      // 窗口隐藏时 Chromium 会完全停发 rAF，裸等会死锁在加载态，必须带超时兜底。
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => resolve(), 120)
+        requestAnimationFrame(() => {
+          clearTimeout(timer)
+          resolve()
+        })
+      })
       if (cancelled) return
 
       // 渲染到游离节点再整体换入：刷新或切换文件时旧渲染不会追加到新内容上。
       staging = document.createElement('div')
       const options: Partial<Options> = {
         inWrapper: true,
-        breakPages: false,
+        // 打开内嵌分页标记支持：Word 重存过的文档能拿到精确分页；
+        // 没有标记的文档再由下方的重流分页引擎按版面高度近似切分。
+        breakPages: true,
         // 保留 Word 页宽（ignoreWidth 会把页面压成窄条、正文宽度失真），
         // 渲染后按容器宽度整体缩放，等价于常见的文档预览“适应宽度”。
         ignoreWidth: false,
-        ignoreHeight: true,
+        ignoreHeight: false,
         renderComments: false,
         renderChanges: false,
         // altChunk 会把文档内嵌的原始 HTML 放进 iframe srcdoc，
@@ -341,6 +369,14 @@ export default function WorkbenchDocxPreview(): JSX.Element {
         staging = null
         return
       }
+      // 先把 WMF/EMF 图元文件原位转成 PNG，再整体换入容器，
+      // 避免用户先看到一帧裂图；Chromium 没有图元解码器，转换是显示的唯一途径。
+      await convertMetafileImages(staging)
+      if (cancelled) {
+        clearDocxContainer(staging)
+        staging = null
+        return
+      }
       const outlineDoc = buildLightweightDocxOutlineDoc(extractDocxTocItems(doc))
       container.replaceChildren(...Array.from(staging.childNodes))
       staging = null
@@ -348,8 +384,14 @@ export default function WorkbenchDocxPreview(): JSX.Element {
       const wrapper = Array.from(container.children).find((el) =>
         el.classList.contains('docx-wrapper')
       ) as HTMLElement | undefined
-      const page = wrapper?.querySelector<HTMLElement>('section.docx')
-      basePageWidthRef.current = page ? page.offsetWidth : 0
+      if (wrapper) {
+        // 修正宽浮动表格的锚定位失真，再按真实版面高度把超长内容重流为分页。
+        // 两步都同步完成，用户看不到中间态。
+        normalizeWideFloatingTables(wrapper)
+        paginateDocxFlow(wrapper)
+        const firstPage = wrapper.querySelector<HTMLElement>('section.docx')
+        basePageWidthRef.current = firstPage ? firstPage.getBoundingClientRect().width : 0
+      }
 
       setDocxDocument(outlineDoc)
       fitToWidth()
@@ -588,13 +630,19 @@ export default function WorkbenchDocxPreview(): JSX.Element {
 .docx-preview-content .docx-wrapper {
   background: transparent;
   padding: 0;
-  display: block;
+  display: grid;
+  justify-content: center;
+  justify-items: center;
+  align-items: start;
+  gap: 20px;
+  margin: 0 auto;
+  width: fit-content;
+  min-width: 100%;
 }
 .docx-preview-content .docx-wrapper > section.docx {
-  margin: 0 auto 20px;
+  margin: 0;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), 0 10px 28px -16px rgba(15, 23, 42, 0.35);
 }
-.docx-preview-content .docx-wrapper > section.docx:last-child { margin-bottom: 0; }
 `}</style>
 
       <PreviewHeader
