@@ -14,7 +14,7 @@ import { TabIndentationPlugin } from '@lexical/react/LexicalTabIndentationPlugin
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary'
 
 import { HeadingNode, QuoteNode } from '@lexical/rich-text'
-import { ListNode, ListItemNode } from '@lexical/list'
+import { ListNode, ListItemNode, $isListItemNode } from '@lexical/list'
 import { TableNode, TableRowNode, TableCellNode } from '@lexical/table'
 import { CodeNode, CodeHighlightNode } from '@lexical/code'
 import { LinkNode, AutoLinkNode } from '@lexical/link'
@@ -662,7 +662,7 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
         <LinkPlugin />
         <TablePlugin />
         <HorizontalRulePlugin />
-        <TabIndentationPlugin />
+        <TabIndentationPlugin $canIndent={$isListItemNode} />
         <MarkdownShortcutPlugin transformers={WORKBENCH_TRANSFORMERS} />
         <MarkdownSyncPlugin />
         <WorkbenchCodeHighlightPlugin />

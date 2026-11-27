@@ -34,22 +34,48 @@ function getParentRelativeDir(relativePath: string): string {
 /**
  * 双链的 @ / [[ 触发匹配。
  * 与 useBasicTypeaheadTriggerMatch 语义一致（行首 / 空白 / 左括号后触发），
- * 但允许查询串包含空格（文件名常带空格）且支持两位触发符 [[。
+ * 支持两位触发符 [[。
+ *
+ * 触发语义：只有在"刚刚敲下触发符"（空查询）时才会开启一次匹配会话，
+ * 光标移经正文中已有的 @ / [[ 不会弹菜单；查询遇到空白字符即结束会话，
+ * 避免在引用键（如 @fig-xxx）后继续输入正文时菜单一直悬挂；
+ * Esc 可提前终止当前会话（disarm 后对本次会话保持关闭）。
  */
-function wikiLinkTriggerFn(trigger: '@' | '[[') {
+function createWikiLinkTrigger(trigger: '@' | '[['): {
+  triggerFn: (text: string, editor: LexicalEditor) => MenuTextMatch | null
+  dismiss: () => void
+} {
   const re =
     trigger === '@'
-      ? /(^|\s|\()(@([^\][]{0,75}))$/
-      : /(^|\s|\()(\[\[([^\][]{0,75}))$/
-  return (text: string, _editor: LexicalEditor): MenuTextMatch | null => {
-    const match = re.exec(text)
-    if (match === null) return null
-    const maybeLeadingWhitespace = match[1]
-    const matchingString = match[3]
-    return {
-      leadOffset: match.index + maybeLeadingWhitespace.length,
-      matchingString,
-      replaceableString: match[2]
+      ? /(^|\s|\()(@([^\s[\]]{0,75}))$/
+      : /(^|\s|\()(\[\[([^\s[\]]{0,75}))$/
+  // 会话状态：仅在空查询（刚敲下触发符）时激活；
+  // 匹配消失（输入空白、光标移走、删除触发符、超限）即结束。
+  let armed = false
+  let dismissed = false
+  return {
+    triggerFn: (text: string, _editor: LexicalEditor): MenuTextMatch | null => {
+      const match = re.exec(text)
+      if (match === null) {
+        armed = false
+        dismissed = false
+        return null
+      }
+      if (!armed && match[3].length === 0) {
+        armed = true
+      }
+      if (!armed || dismissed) return null
+      const maybeLeadingWhitespace = match[1]
+      const matchingString = match[3]
+      return {
+        leadOffset: match.index + maybeLeadingWhitespace.length,
+        matchingString,
+        replaceableString: match[2]
+      }
+    },
+    dismiss: () => {
+      // 仅在会话进行中记录 Esc 终止，避免影响下一次触发
+      if (armed) dismissed = true
     }
   }
 }
@@ -62,9 +88,6 @@ class WikiFileOption extends MenuOption {
     this.file = file
   }
 }
-
-const AT_TRIGGER_FN = wikiLinkTriggerFn('@')
-const BRACKET_TRIGGER_FN = wikiLinkTriggerFn('[[')
 
 /** 从文件树拖拽 payload 中提取工作区文件相对路径列表（忽略目录）。 */
 function extractDroppedFilePaths(dataTransfer: DataTransfer): string[] {
@@ -86,6 +109,10 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
   const fileTree = useWorkbenchStore((s) => s.fileTree)
   const fileSort = useWorkbenchStore((s) => s.fileSort)
 
+  // 触发器持有会话状态（armed/dismissed），必须按组件实例创建而非模块级共享。
+  const atTrigger = useMemo(() => createWikiLinkTrigger('@'), [])
+  const bracketTrigger = useMemo(() => createWikiLinkTrigger('[['), [])
+
   const allFiles = useMemo<WorkbenchFileNode[]>(
     () => flattenSortedFiles(fileTree, fileSort),
     [fileTree, fileSort]
@@ -103,6 +130,14 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
   const options = useMemo(() => filteredFiles.map((file) => new WikiFileOption(file)), [filteredFiles])
 
   useEffect(() => {
+    // Esc 终止当前触发会话：在编辑器根节点的捕获阶段记录 dismiss，
+    // 不拦截事件本身，LexicalMenu 仍会正常关闭菜单视觉态。
+    const handleKeydown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      atTrigger.dismiss()
+      bracketTrigger.dismiss()
+    }
+
     const handleClick = (event: MouseEvent): void => {
       const target = event.target
       if (!(target instanceof Element)) return
@@ -122,7 +157,11 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
     const attach = (root: HTMLElement | null): (() => void) => {
       if (!root) return () => {}
       root.addEventListener('click', handleClick, true)
-      return () => root.removeEventListener('click', handleClick, true)
+      root.addEventListener('keydown', handleKeydown, true)
+      return () => {
+        root.removeEventListener('click', handleClick, true)
+        root.removeEventListener('keydown', handleKeydown, true)
+      }
     }
 
     let cleanup = attach(editor.getRootElement())
@@ -134,7 +173,7 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
       unregisterRoot()
       cleanup()
     }
-  }, [editor])
+  }, [editor, atTrigger, bracketTrigger])
 
   useEffect(() => {
     return editor.registerCommand(
@@ -291,14 +330,14 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
       <LexicalTypeaheadMenuPlugin<WikiFileOption>
         onQueryChange={setAtQuery}
         onSelectOption={onSelectOption}
-        triggerFn={AT_TRIGGER_FN}
+        triggerFn={atTrigger.triggerFn}
         options={options}
         menuRenderFn={renderMenu}
       />
       <LexicalTypeaheadMenuPlugin<WikiFileOption>
         onQueryChange={setBracketQuery}
         onSelectOption={onSelectOption}
-        triggerFn={BRACKET_TRIGGER_FN}
+        triggerFn={bracketTrigger.triggerFn}
         options={options}
         menuRenderFn={renderMenu}
       />
