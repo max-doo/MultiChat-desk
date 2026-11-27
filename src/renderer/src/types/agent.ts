@@ -136,6 +136,7 @@ export interface AgentAllowlistEntry {
 
 export interface AgentConfig {
   agentDir: string
+  bundledSkillDir: string | null
   skillDirCandidates: AgentSkillDirCandidate[]
   extraSkillDirs: string[]
   allowlist: AgentAllowlistEntry[]

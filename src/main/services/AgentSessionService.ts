@@ -19,6 +19,8 @@ import type { AnyModel, Model, Api, ThinkingLevel } from '@earendil-works/pi-ai'
 import { PermissionEngine, type PermissionMode, type ApprovalRequest } from './PermissionEngine'
 import { parseMode } from './permissionPolicy'
 import { AgentResourceLoader } from './AgentResourceLoader'
+import { getBundledSkillsRoot } from './bundledSkills'
+import { getBundledNodeHostExe } from './agentRuntimeEnv'
 import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform, shellToolModifiers } from './shell'
 import { createWebSearchTool } from './webSearchTool'
 import { createImageGenTool } from './imageGenTool'
@@ -322,12 +324,34 @@ export class AgentSessionService {
     const operations = ShellTool.createBashOperations(
       join(this.sessionsDir, 'shell-audit.log')
     )
+    // 打包版注入 node 函数：skill 的 JS 脚本链（docx/pptx 等）依赖 node 命令，
+    // 而普通用户机器没有 Node。Electron 本体在 ELECTRON_RUN_AS_NODE=1 下就是
+    // 完整 Node 解释器，spawnHook 向每条 shell 命令前部注入函数定义——
+    // @args 是 PowerShell 原生转发（不经 cmd 二次分词，含空格/&/引号的参数
+    // 无损到达 argv），变量只存在于本次 -Command 进程作用域，绝不写进
+    // 主进程 process.env（会被 Chromium 子进程继承导致应用退化）。
+    // dev 用系统 node，不注入。
+    const nodeHostExe = getBundledNodeHostExe()
+    const spawnHook = nodeHostExe
+      ? (context: { command: string; cwd: string; env: NodeJS.ProcessEnv }) => {
+          if (shellToolForPlatform() === 'powershell') {
+            const escapedExe = nodeHostExe.replace(/'/g, "''")
+            const prelude =
+              `function node { $env:ELECTRON_RUN_AS_NODE='1'; & '${escapedExe}' @args }\n`
+            return { ...context, command: prelude + context.command }
+          }
+          const escapedExe = nodeHostExe.replace(/'/g, `'\\''`)
+          const prelude =
+            `node() { ELECTRON_RUN_AS_NODE=1 '${escapedExe}' "$@"; }\n`
+          return { ...context, command: prelude + context.command }
+        }
+      : undefined
     // createPowerShellToolDefinition returns a ToolDefinition specialized to the
     // shell schema; customTools expects the wider ToolDefinition<TSchema>, so
     // widen via `unknown`. Runtime behavior is unaffected.
     const definition = shellToolForPlatform() === 'powershell'
-      ? mod.createPowerShellToolDefinition(cwd, { operations })
-      : mod.createBashToolDefinition(cwd, { operations })
+      ? mod.createPowerShellToolDefinition(cwd, { operations, spawnHook })
+      : mod.createBashToolDefinition(cwd, { operations, spawnHook })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return definition as any
   }
@@ -1645,7 +1669,7 @@ export class AgentSessionService {
       cwd: resolvedCwd,
       agentDir: this.agentDir,
       appendSystemPrompt: [envPrompt],
-      extraSkillDirs: this.getExtraSkillDirs(),
+      extraSkillDirs: this.resolveSkillDirs(),
       extensionFactories: this.buildCompressionExtensions()
     })
     await resourceLoader.reload()
@@ -1714,7 +1738,7 @@ export class AgentSessionService {
       cwd,
       agentDir: this.agentDir,
       appendSystemPrompt: [envPrompt],
-      extraSkillDirs: this.getExtraSkillDirs(),
+      extraSkillDirs: this.resolveSkillDirs(),
       extensionFactories: this.buildCompressionExtensions()
     })
     await resourceLoader.reload()
@@ -2017,7 +2041,7 @@ export class AgentSessionService {
       cwd,
       agentDir: this.agentDir,
       appendSystemPrompt: [envPrompt],
-      extraSkillDirs: this.getExtraSkillDirs(),
+      extraSkillDirs: this.resolveSkillDirs(),
       extensionFactories: this.buildCompressionExtensions()
     })
     await resourceLoader.reload()
@@ -3446,7 +3470,7 @@ export class AgentSessionService {
    */
   public async listSkills(cwd?: string): Promise<Array<{ name: string; description: string; filePath: string; disableModelInvocation: boolean }>> {
     const resolvedCwd = cwd && cwd.trim() ? cwd.trim() : this.activeSessions.values().next().value?.cwd ?? process.cwd()
-    const loader = new AgentResourceLoader({ cwd: resolvedCwd, agentDir: this.agentDir, extraSkillDirs: this.getExtraSkillDirs() })
+    const loader = new AgentResourceLoader({ cwd: resolvedCwd, agentDir: this.agentDir, extraSkillDirs: this.resolveSkillDirs() })
     try {
       await loader.reload()
     } catch {
@@ -3529,6 +3553,20 @@ export class AgentSessionService {
   public getExtraSkillDirs(): string[] {
     const list = this.store.get('agent_extra_skill_dirs')
     return Array.isArray(list) ? (list as string[]) : []
+  }
+
+  /**
+   * 会话创建传给资源加载器的完整 skill 目录序列。
+   * 用户自定义附加目录在前、随包目录在后——内核按序列"先扫描者获胜"去重，
+   * 因此同名 skill 用户版本天然压过随包版本，这也是推荐的定制路径。
+   * 所有 AgentResourceLoader 构造点（newSession/resumeSession/forkSessionAtLeaf/
+   * listSkills）必须统一走这里，漏掉任何一处都会让对应会话丢失随包 skill。
+   */
+  private resolveSkillDirs(): string[] {
+    const dirs = [...this.getExtraSkillDirs()]
+    const bundled = getBundledSkillsRoot()
+    if (bundled) dirs.push(bundled)
+    return dirs
   }
 
   public setExtraSkillDirs(dirs: string[]): void {

@@ -25,6 +25,7 @@ import {
   WORKBENCH_FILE_SCHEME
 } from './services/workbenchService'
 import { initWorkbenchDownloadService } from './services/workbenchDownloadService'
+import { initAgentRuntimeEnv } from './services/agentRuntimeEnv'
 import { pathToFileURL } from 'url'
 import {
   buildWorkbenchHtmlEditDocument,
@@ -167,6 +168,11 @@ if (!gotTheLock) {
     name: is.dev ? 'config-dev' : 'config',
     cwd: dataPath
   })
+
+  // Agent 运行时环境注入（MULTICHAT_AGENT_DIR / MULTICHAT_RUNTIME_DIR / shim PATH）。
+  // 必须在任何 Agent 会话创建之前完成；ELECTRON_RUN_AS_NODE 绝不在这里设置，
+  // 见 agentRuntimeEnv.ts 头部说明。
+  initAgentRuntimeEnv(store)
 
   // 首次创建配置时默认打开划词工具条；已经显式保存过开关状态时保持用户选择。
   if (!store.has('selectionToolbarEnabled')) {

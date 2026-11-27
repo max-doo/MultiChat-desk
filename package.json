@@ -10,7 +10,7 @@
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "dev": "electron-vite dev",
     "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --target=node18 --outfile=out/cli/index.js",
-    "build": "pnpm run build:cli && electron-vite build",
+    "build": "node scripts/prepare-runtime.mjs && pnpm run build:cli && electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "install-electron && electron-builder install-app-deps",
     "clean:store": "node -e \"const fs=require('fs');const path=require('path');const os=require('os');const pkg=require('./package.json');const appName=pkg.productName||pkg.name;const base=process.platform==='win32'?process.env.APPDATA:process.platform==='darwin'?path.join(os.homedir(),'Library','Application Support'):(process.env.XDG_CONFIG_HOME||path.join(os.homedir(),'.config'));const dirs=[path.join(base,appName),path.join(base,appName+'-dev')];const files=['config.json','config-dev.json'];for(const dir of dirs){for(const file of files){fs.rmSync(path.join(dir,file),{force:true});}}\"",

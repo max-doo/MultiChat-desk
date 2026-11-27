@@ -16,8 +16,10 @@ extraResources:
     to: portable.txt
   - from: out/cli/index.js
     to: cli/index.js
-  - from: .agents/skills/multichat-cli
-    to: skill/multichat-cli
+  - from: .agents/skills
+    to: skill
+  - from: build/runtime
+    to: runtime
 
 # 自定义输出文件名
 artifactName: ${productName}-Portable-${version}.${ext}

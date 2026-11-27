@@ -1,0 +1,11 @@
+{
+  "name": "multichat-skill-pptx",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Runtime npm dependencies for the pptx skill, pre-installed into this directory at packaging time (node_modules must ship with the skill; end-user machines have no npm).",
+  "dependencies": {
+    "pptxgenjs": "^4.0.1",
+    "@iconify/utils": "^3.1.7",
+    "@iconify-json/lucide": "^1.2.160"
+  }
+}

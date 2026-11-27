@@ -61,6 +61,17 @@ export function AgentSkillsSettings({ compact = false }: { compact?: boolean } =
             compact ? 'max-h-40 overflow-y-auto' : ''
           }`}
         >
+          {agentConfig?.bundledSkillDir && (
+            <div className="flex items-center gap-2.5 px-3 py-2">
+              <AppIcon name="inventory_2" size={14} className="shrink-0 text-text-secondary" />
+              <span className="truncate font-mono text-label text-text-primary" title={agentConfig.bundledSkillDir}>
+                {agentConfig.bundledSkillDir}
+              </span>
+              <span className="ml-auto shrink-0 rounded bg-black/5 px-1.5 py-0.5 text-tiny font-medium text-text-secondary dark:bg-white/10">
+                随包内置
+              </span>
+            </div>
+          )}
           {candidates.map((candidate) => {
             const checked = candidate.isDefault || extraDirs.includes(candidate.path)
             return (
@@ -93,6 +104,9 @@ export function AgentSkillsSettings({ compact = false }: { compact?: boolean } =
               </label>
             )
           })}
+        </div>
+        <div className="mt-1.5 px-1 text-caption text-text-secondary/80">
+          同名 skill 时，用户目录中的版本优先于随包内置版本
         </div>
         <div className="mt-2 flex items-center gap-2">
           <input

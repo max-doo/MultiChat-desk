@@ -781,6 +781,7 @@ const api = {
     success: boolean
     data?: {
       agentDir: string
+      bundledSkillDir: string | null
       skillDirCandidates: Array<{ path: string; exists: boolean; isDefault: boolean }>
       extraSkillDirs: string[]
       allowlist: Array<{ id: string; tool: string; pattern: string; createdAt: number }>

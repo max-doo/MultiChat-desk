@@ -109,6 +109,7 @@ import {
     captureExcerptDocument
 } from './services/conversationDocumentService'
 import { AgentSessionService } from './services/AgentSessionService'
+import { getBundledSkillsRoot } from './services/bundledSkills'
 import { LegacyMigrationService } from './services/legacyMigrationService'
 import {
     summarizeFrontmatterBackups,
@@ -3127,6 +3128,7 @@ export async function registerIpcHandlers(
         try {
             const data = {
                 agentDir: agentSessionService.getAgentDir(),
+                bundledSkillDir: getBundledSkillsRoot(),
                 skillDirCandidates: agentSessionService.getSkillDirCandidates(),
                 extraSkillDirs: agentSessionService.getExtraSkillDirs(),
                 allowlist: agentSessionService.getAllowlist(),

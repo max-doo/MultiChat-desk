@@ -1,0 +1,9 @@
+{
+  "name": "multichat-skill-docx",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Runtime npm dependencies for the docx skill, pre-installed into this directory at packaging time (node_modules must ship with the skill; end-user machines have no npm).",
+  "dependencies": {
+    "docx": "^9.16.1"
+  }
+}
